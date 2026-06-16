@@ -1,0 +1,58 @@
+name: Build and Push Docker Image to ECR
+
+on:
+  pull_request:
+    branches:
+      - dev
+      - staging
+      - main
+
+env:
+  ECR_REPOSITORY: zsoftly-capstone-part2
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+
+jobs:
+  build-and-push:
+    name: Build and Push to ECR
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set environment tag
+        id: env_tag
+        run: |
+          if [ "${{ github.base_ref }}" == "main" ]; then
+            echo "ENV_TAG=prod" >> $GITHUB_OUTPUT
+          elif [ "${{ github.base_ref }}" == "staging" ]; then
+            echo "ENV_TAG=staging" >> $GITHUB_OUTPUT
+          else
+            echo "ENV_TAG=dev" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Build, tag, and push image to ECR
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ steps.env_tag.outputs.ENV_TAG }}-${{ github.sha }}
+          ENV_TAG: ${{ steps.env_tag.outputs.ENV_TAG }}
+        run: |
+          echo "Building image for environment: $ENV_TAG"
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:$ENV_TAG-latest
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$ENV_TAG-latest
+          echo "✅ Pushed: $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+          echo "✅ Tagged: $ECR_REGISTRY/$ECR_REPOSITORY:$ENV_TAG-latest"
